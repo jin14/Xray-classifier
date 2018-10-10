@@ -3,6 +3,8 @@ import random
 import cv2
 import argparse
 import os
+import numpy
+from matplotlib import pyplot as plt
 from multiprocessing import Pool
 from itertools import repeat
 """
@@ -140,6 +142,43 @@ def adaptiveEqualize(img):
     merged = cv2.merge((cl, a_channel, b_channel))
     img_output = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
     return img_output
+
+
+"""
+Return an edge-detected image
+
+:param img: image to be performed edge-detection
+:type img: str
+"""
+
+
+def edge_detection(img):
+    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray,100,200)
+    return edges
+
+"""
+Return a corner-detected image
+
+:param img: image to be performed corner-detection
+:type img: str
+"""
+
+def corner_detection(img):
+    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+    gray = np.float32(gray)
+    dst = cv2.cornerHarris(gray,2,3,0.04)
+    dst = cv2.dilate(dst,None)
+    img[dst>0.01*dst.max()]=[0,0,255]
+    return img
+
+def plot_images(img, processed_image):
+    plt.subplot(121),plt.imshow(img,cmap = 'gray')
+    plt.title('Original Image'), plt.xticks([]), plt.yticks([])
+    plt.subplot(122),plt.imshow(edges,cmap = 'gray')
+    plt.title('Edge Image'), plt.xticks([]), plt.yticks([])
+
+    plt.show()
 
 def process(image, image_dir, out_dir):
     image_path = image_dir + image
