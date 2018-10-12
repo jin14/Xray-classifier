@@ -30,7 +30,7 @@ if __name__ == "__main__":
     parser.add_argument('--t', help="image directory")
     parser.add_argument('--lt', help="label file name")
     parser.add_argument('--b', type=int, help="batch size")
-    parser.add_argument('--w', help="imagenet:pretrained weights from keras or none:random initialization")
+    parser.add_argument('--w', help="imagenet:pretrained weights from keras or None:random initialization")
     parser.add_argument('--d', type=int, help="image width or length, both should be the same")
     parser.add_argument('--k', type=int, help="K fold cross validation")
     parser.add_argument('--e', type=int, help="No of epochs")
@@ -38,7 +38,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     BATCH_SIZE = args.b
-    WEIGHTS = args.w
+    WEIGHTS = args.w if args.w == 'imagenet' else None
     DIM = args.d
     EPOCHS = args.e
     learning_rates = [0.001, 0.01, 0.0001, 0.00001]
@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
     for lr in learning_rates:
         print("Learning rate:", lr)
-        model = createVGG(args.d, args.w, lr)
+        model = createVGG(DIM, WEIGHTS, lr)
         print("Model Summary: ", model.summary())
 
         for train_index, test_index in kfold.split(img_indexes):
