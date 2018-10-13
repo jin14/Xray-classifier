@@ -1,5 +1,6 @@
 import argparse
 import pandas as pd
+import matplotlib.pyplot as plt
 from sklearn.model_selection import StratifiedKFold, KFold
 from keras.layers import Input, Flatten, Dense
 from keras.preprocessing.image import ImageDataGenerator
@@ -24,11 +25,38 @@ def createVGG(dim, weights, lr):
 
     return vgg_modified
 
+def generatePlot(model, dir, name ,lr):
+
+    acc = model.history['acc']
+    val_acc = model.history['val_acc']
+    loss = model.history['loss']
+    val_loss = model.history['val_loss']
+    epochs = range(1, len(acc) + 1)
+
+    plt.figure()
+    plt.plot(epochs, acc , 'b*-', label="Training Accuracy")
+    plt.plot(epochs, val_acc, 'r*-', label="Validation Accuracy")
+    plt.title("Training and Validation Accuracy")
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy")
+    plt.legend()
+    plt.savefig(dir + name + '_acc_{}.png'.format(lr))
+
+    plt.figure()
+    plt.plot(epochs, loss , 'bo-', label="Training Loss")
+    plt.plot(epochs, val_loss, 'ro-', label="Validation Loss")
+    plt.title("Training and Validation Loss")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.savefig(dir + name + '_loss_{}.png'.format(lr))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Supply image directory and label filename")
     parser.add_argument('--t', help="image directory")
     parser.add_argument('--lt', help="label file name")
+    parser.add_argument('--p', help="directory to save plot")
     parser.add_argument('--b', type=int, help="batch size")
     parser.add_argument('--w', help="imagenet:pretrained weights from keras or None:random initialization")
     parser.add_argument('--d', type=int, help="image width or length, both should be the same")
@@ -41,14 +69,16 @@ if __name__ == "__main__":
     WEIGHTS = args.w if args.w == 'imagenet' else None
     DIM = args.d
     EPOCHS = args.e
-    learning_rates = [0.001, 0.01, 0.0001, 0.00001]
+    #learning_rates = [0.001, 0.01, 0.0001, 0.00001]
+    learning_rates = [0.0001]
 
     df = pd.read_csv(args.t + args.lt)
     img_indexes = list(df.index)
     kfold = KFold(n_splits=args.k, shuffle=True)
 
     train_datagen = ImageDataGenerator(
-        rescale=1./255)
+        rescale=1./255,
+    )
     valid_datagen = ImageDataGenerator(
         rescale=1./255
     )
@@ -80,10 +110,13 @@ if __name__ == "__main__":
                                                                 target_size=(DIM,DIM),
                                                                 batch_size=BATCH_SIZE)
 
-            model.fit_generator(
+            result = model.fit_generator(
                 generator=train_generator,
                 steps_per_epoch=len(traindf.index)/BATCH_SIZE,
                 epochs=EPOCHS,
                 validation_data=valid_generator,
                 validation_steps=len(validdf.index)/BATCH_SIZE
             )
+
+            model.save('model_{}'.format(lr))
+            generatePlot(result, args.p, 'vgg16_' + str(BATCH_SIZE) + '_' + str(DIM, lr))
