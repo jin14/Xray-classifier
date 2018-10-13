@@ -7,6 +7,7 @@ import numpy
 from matplotlib import pyplot as plt
 from multiprocessing import Pool
 from itertools import repeat
+from bounded_executor import BoundedExecutor
 """
 Returns a dictionary where the keys are the disease label and the values are a list of image file name
 
@@ -198,6 +199,10 @@ if __name__ == "__main__":
     parser.add_argument('--c', help="File path of data entry file")
     parser.add_argument('--i', help="File path of original image directory")
     parser.add_argument('--o', help="File path of processed image directory")
+    parser.add_argument('--m', help="If true, use bounded thread executor, otherwise multiprocessing instead", type=bool, default=False)
+    parser.add_argument('--n', help="Number of workers for multi-threading", type=int, default=50)
+    parser.add_argument('--b', help="The bound for bounded thread executor", type=int, default=10)
+
     args = parser.parse_args()
     file = args.c
     image_dir = args.i
@@ -214,8 +219,13 @@ if __name__ == "__main__":
 
     #sampled_images = [i for i in sampled_images if int(i.split('_')[0].lstrip("0")) < 100]
 
-    with Pool() as pool:
-        pool.starmap(process, zip(sampled_images, repeat(image_dir), repeat(out_dir)))
+    if args.m == True:
+        executor = BoundedExecutor(args.b, args.n)
+        for img in sampled_images:
+            executor.submit(process, img, image_dir, out_dir)
+    else:            
+        with Pool() as pool:
+            pool.starmap(process, zip(sampled_images, repeat(image_dir), repeat(out_dir)))
 
     print("All images processed successfully!")
     # for image in sampled_images:
