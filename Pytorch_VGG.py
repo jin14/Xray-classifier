@@ -5,7 +5,7 @@ import torchvision
 import torch.nn as nn
 import numpy as np
 from sklearn.preprocessing import MultiLabelBinarizer
-from sklearn.metrics import roc_auc_score, accuracy_score
+from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve, roc_curve, auc
 import torchvision.transforms as transforms
 from torch.utils.data.sampler import SubsetRandomSampler
 from torch import optim
@@ -14,6 +14,8 @@ import os
 import time
 import copy
 import argparse
+import matplotlib.pyplot as plt
+
 
 
 
@@ -63,7 +65,7 @@ def train_model(model, criterion, optimizer, num_epochs, dataloaders, dataset_si
 
             running_loss = 0.0
 
-            for _, sample in enumerate(dataloaders[phase]):
+            for i, sample in enumerate(dataloaders[phase]):
                 inputs = sample['image'].to(device)
                 labels = sample['label'].to(device)
                 batch_size = inputs.size(0)
@@ -81,7 +83,7 @@ def train_model(model, criterion, optimizer, num_epochs, dataloaders, dataset_si
                 # outputs_binary = torch.Tensor.detach().map_(outputs, threshold, func)
                 # running_corrects += min(torch.sum(torch.eq(outputs_binary, labels)))
                 running_loss += loss.item() * batch_size
-                print("Batch: {}/{}, running loss:".format( _ , dataset_sizes[phase]/batch_size), running_loss/( (_+1) * batch_size))
+                print("Batch: {}/{}, Loss: {}".format( i , dataset_sizes[phase]/batch_size, running_loss/((i+1) * batch_size)))
             epoch_loss = running_loss / dataset_sizes[phase]
             print("Phase: {}, Epoch: {}, loss: {:4f}".format(phase,epoch, epoch_loss))
 
@@ -101,9 +103,10 @@ def train_model(model, criterion, optimizer, num_epochs, dataloaders, dataset_si
                     )
                 print("New optimizer created with LR: {}".format(lr))
 
-            if phase == 'val' and epoch - best_epoch > 3:
-                print("Early termination of epoch - no improvements in the last 3 epochs")
-                break
+        if epoch - best_epoch > 3:
+            print("Early termination of epoch - no improvements in the last 3 epochs")
+            break
+
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}'.format(
         time_elapsed // 60, time_elapsed % 60))
@@ -114,7 +117,7 @@ def train_model(model, criterion, optimizer, num_epochs, dataloaders, dataset_si
 
     return model, best_epoch
 
-def test_model(model, testloader, testData):
+def test_model(model, testloader, testData, name):
     preddf = pd.DataFrame(columns=['Image'])
     truedf = pd.DataFrame(columns=['Image'])
 
@@ -145,6 +148,7 @@ def test_model(model, testloader, testData):
 
     aucdf = pd.DataFrame(columns=["label", "auc"])
 
+    # AUC scores
     for column in truedf.columns[1:]:
         actual = truedf[column]
         pred = preddf["prob_" + column]
@@ -153,15 +157,85 @@ def test_model(model, testloader, testData):
         thisrow['auc'] = np.nan
         try:
             thisrow['auc'] = roc_auc_score(
-                actual.as_matrix().astype(int), pred.as_matrix())
+                actual.values.astype(int), pred.values)
         except BaseException:
             print("can't calculate auc for " + str(column))
         aucdf = aucdf.append(thisrow, ignore_index=True)
 
         print("Label: {}, AUC: {}".format(column, thisrow['auc']))
-    preddf.to_csv("results/preds.csv", index=False)
-    aucdf.to_csv("results/aucs.csv", index=False)
+    preddf.to_csv("results/pred_{}.csv".format(name), index=False)
+    aucdf.to_csv("results/aucs_{}.csv".format(name), index=False)
+    truedf.to_csv("results/true_{}.csv".format(name), index=False)
 
+
+    return preddf, truedf
+
+def generate_PR_AUC(preddf, truedf, name):
+
+    precision, recall, average_precision = {}, {}, {}
+    for column in truedf.columns[1:]:
+        actual = truedf[column]
+        pred = preddf["prob_" + column]
+        precision[column], recall[column], _ = precision_recall_curve(actual.values, pred.values)
+        average_precision[column] = average_precision_score(actual.values, pred.values)
+
+
+    precision["mico"], recall["mico"], _ = precision_recall_curve(truedf.iloc[:,1:].values.ravel(), preddf.iloc[:,1:].values.ravel())
+    average_precision["micro"] = average_precision_score(truedf.iloc[:,1:].values, preddf.iloc[:,1:].values)
+    print('Average precision score, micro-averaged over all classes: {0:0.2f}'
+          .format(average_precision["micro"]))
+
+    #generate plots
+    cm = plt.get_cmap("tab20")
+    n_classes = len(truedf.columns[1:])
+    colors = [cm(1.*i/n_classes) for i in range(n_classes)]
+    lines = []
+    labels = []
+    plt.figure()
+    plt.style.use('ggplot')
+    for i, color in zip(truedf.columns[1:], colors):
+        l, = plt.plot(recall[i], precision[i], color=color, lw=2)
+        lines.append(l)
+        labels.append("{}:{:0.2f}".format(i, average_precision[i]))
+
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curve')
+    plt.legend(lines, labels, title="PR-AUC", loc='center right', bbox_to_anchor=(1.5, 0.5))
+    plt.savefig("results/PRAUC_{}.png".format(name), bbox_inches='tight')
+
+
+def generate_ROC_AUC(preddf, truedf, name):
+
+    fpr, tpr, auc_val = {}, {}, {}
+    for column in truedf.columns[1:]:
+        actual = truedf[column]
+        pred = preddf["prob_" + column]
+        fpr[column], tpr[column], thresholds = roc_curve(actual.values, pred.values)
+        auc_val[column] = auc(fpr[column], tpr[column])
+
+    cm = plt.get_cmap("tab20")
+    n_classes = len(truedf.columns[1:])
+    colors = [cm(1. * i / n_classes) for i in range(n_classes)]
+    lines = []
+    labels = []
+    plt.figure()
+    plt.style.use('ggplot')
+    for i, color in zip(truedf.columns[1:], colors):
+        l, = plt.plot(fpr[i], tpr[i], color=color, lw=1)
+        lines.append(l)
+        labels.append("{}:{:0.2f}".format(i, auc_val[i]))
+
+
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+    plt.legend(lines, labels, title="ROC-AUC", loc='center right',bbox_to_anchor=(1.5,0.5))
+    plt.savefig("results/ROCcurve_{}.png".format(name), bbox_inches='tight')
 
 
 
@@ -182,11 +256,11 @@ def test_model(model, testloader, testData):
 
 
 
-class modifiedVGG(nn.Module):
+class modifiedModel(nn.Module):
 
-    def __init__(self, pretrainedVGG):
-        super(modifiedVGG, self).__init__()
-        self.pretrainedVGG = pretrainedVGG
+    def __init__(self, pretrained, ):
+        super(modifiedModel, self).__init__()
+        self.pretrained = pretrained
         self.fc1 = nn.Linear(4096, 14)
         self.sigmoid = torch.nn.Sigmoid()
 
@@ -211,6 +285,7 @@ if __name__ == "__main__":
     parser.add_argument('--te', help="df for test name")
     parser.add_argument('--w',type=int, help="number of workers")
     parser.add_argument('--e', type=int, help="number of epochs")
+    parser.add_argument('--n', help="Filename of results")
 
     args = parser.parse_args()
 
@@ -218,6 +293,7 @@ if __name__ == "__main__":
     data_transforms = {
         'train': transforms.Compose([
             transforms.Resize(224),
+            transforms.RandomHorizontalFlip(0.5),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ]),
@@ -232,6 +308,7 @@ if __name__ == "__main__":
     print(torch.cuda.is_available())
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     num_epochs = args.e
+    filename = args.n
     num_classes = 14
     batch_size = 64
     validation_split = 0.2
@@ -278,15 +355,18 @@ if __name__ == "__main__":
 
     dataset_sizes = {'train': len(train_indices), 'val': len(valid_indices)}
 
-    model = torchvision.models.vgg16(pretrained=True)
+    #model = torchvision.models.vgg16(pretrained=True)
+    model = torchvision.models.inception_v3(pretrained=True)
     model.classifier = nn.Sequential(*list(model.classifier.children())[:-1]) #nn.Sequential(*[model.classifier[i] for i in range(4)])
 
     model = freeze(model)
-    model = modifiedVGG(model).to(device)
+    model = modifiedModel(model).to(device)
     for name, child in model.named_children():
         print(name,child)
     criterion = nn.BCELoss()
     optimizer = torch.optim.SGD(model.parameters(), lr = lr, weight_decay=weight_decay, momentum=0.9)
 
     model, best_epoch = train_model(model, criterion, optimizer, num_epochs, train_val_loader, dataset_sizes, weight_decay, lr)
-    test_model(model, test_loader, testData)
+    preddf, truedf = test_model(model, test_loader, testData, filename)
+    generate_PR_AUC(preddf, truedf, filename)
+    generate_ROC_AUC(preddf, truedf, filename)
