@@ -258,7 +258,7 @@ def generate_ROC_AUC(preddf, truedf, name):
 
 class modifiedModel(nn.Module):
 
-    def __init__(self, pretrained, ):
+    def __init__(self, pretrained):
         super(modifiedModel, self).__init__()
         self.pretrained = pretrained
         self.fc1 = nn.Linear(4096, 14)
@@ -266,7 +266,7 @@ class modifiedModel(nn.Module):
 
     def forward(self,x):
         #model = self.relu(self.pretrainedVGG(x))
-        model = self.fc1(self.pretrainedVGG(x))
+        model = self.fc1(self.pretrained(x))
         return self.sigmoid(model)
 
 def freeze(model):
@@ -355,8 +355,7 @@ if __name__ == "__main__":
 
     dataset_sizes = {'train': len(train_indices), 'val': len(valid_indices)}
 
-    #model = torchvision.models.vgg16(pretrained=True)
-    model = torchvision.models.inception_v3(pretrained=True)
+    model = torchvision.models.vgg16(pretrained=True)
     model.classifier = nn.Sequential(*list(model.classifier.children())[:-1]) #nn.Sequential(*[model.classifier[i] for i in range(4)])
 
     model = freeze(model)
