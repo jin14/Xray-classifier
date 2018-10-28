@@ -3,7 +3,7 @@ import random
 import cv2
 import argparse
 import os
-import numpy
+import numpy as np
 from matplotlib import pyplot as plt
 from multiprocessing import Pool
 from itertools import repeat
@@ -34,12 +34,14 @@ def breakdown(filepath, single=True):
 
 
 """ 
-Return all filenames of images that will make up the training data.
-It ensures each disease class has the same number of images
+Return all filenames of images that will make up the training data, image and label 
+There are two possible scenarios:
+  - uniform distribution: same number of images for each disease labels as long as n is less than the class with the lowest number of image
+  - uneven: occurs when n is more than the min number of image (i.e. hernia: 110) 
 
 :param img_dict: name of variable containing the dictonary of disease labels and corresponding image name
 :type img_dict: dict
-:param n: number of image each class will have, ideally should be less than class with the minimum number of image. In the single case its hernia 110
+:param n: number of image each class will have, ideally should be less than class with the lowest number of image. In the single case its hernia 110
 :type n: int
 :param seed: seed for randomization
 :type seed: int 
@@ -93,6 +95,8 @@ def preprocessAll(img_dict,seed):
         overview['label'].extend([mapping_labels[key]]*len(value))
 
     return training_data, overview, mapping_labels
+
+
 
 
 """
@@ -176,19 +180,30 @@ def corner_detection(img):
 def plot_images(img, processed_image):
     plt.subplot(121),plt.imshow(img,cmap = 'gray')
     plt.title('Original Image'), plt.xticks([]), plt.yticks([])
-    plt.subplot(122),plt.imshow(edges,cmap = 'gray')
+    plt.subplot(122),plt.imshow(processed_image,cmap = 'gray')
     plt.title('Edge Image'), plt.xticks([]), plt.yticks([])
 
     plt.show()
 
-def process(image, image_dir, out_dir):
+def traintest(train, test):
+    train = pd.read_csv(train, sep=" ", header=None)
+    out = {i:0 for i in train.values.flatten().tolist()} # 0 for train test
+    test = pd.read_csv(test, sep=" ", header=None)
+    for i in test.values.flatten().tolist():
+        out[i] = 1 # 1 for test set
+    return out
+
+
+def process(image, image_dir, out_dir, dim):
     image_path = image_dir + image
     img = cv2.imread(image_path)
-    img = resize(img, 128, 128)
-    # equalize hist
-    # img = equilize(img)
-    # adaptive equalize
-    img = adaptiveEqualize(img)
+    img = resize(img, dim, dim)
+    # # equalize hist
+    img = corner_detection(img)
+    img = edge_detection(img)
+    img = equilize(img)
+    # # adaptive equalize
+    # img = adaptiveEqualize(img)
     cv2.imwrite(out_dir + image, img)
     print("Image {} processed successfully!".format(image))
 
@@ -202,11 +217,15 @@ if __name__ == "__main__":
     parser.add_argument('--m', help="If true, use bounded thread executor, otherwise multiprocessing instead", type=bool, default=False)
     parser.add_argument('--n', help="Number of workers for multi-threading", type=int, default=50)
     parser.add_argument('--b', help="The bound for bounded thread executor", type=int, default=10)
+    parser.add_argument('--d', type=int, help="Image resized dimensions")
+    parser.add_argument('--tr', help="File path of train txt file")
+    parser.add_argument('--te', help="File path of test txt file")
 
     args = parser.parse_args()
     file = args.c
     image_dir = args.i
     out_dir = args.o
+    dim = args.d
     os.makedirs(os.path.dirname(out_dir), exist_ok=True)
 
     distribution = breakdown(file,False)
@@ -225,7 +244,7 @@ if __name__ == "__main__":
             executor.submit(process, img, image_dir, out_dir)
     else:            
         with Pool() as pool:
-            pool.starmap(process, zip(sampled_images, repeat(image_dir), repeat(out_dir)))
+            pool.starmap(process, zip(sampled_images, repeat(image_dir), repeat(out_dir), repeat(dim)))
 
     print("All images processed successfully!")
     # for image in sampled_images:
